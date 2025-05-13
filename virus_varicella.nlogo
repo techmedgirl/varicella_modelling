@@ -13,6 +13,8 @@ turtles-own
   shingles-timer
   immune-boost
   symptom-delay
+  age
+  vaccine-immunity-timer
 ]
 
 globals
@@ -36,6 +38,8 @@ to setup-nodes
   [
     ; for visual reasons, we don't put any nodes *too* close to the edges
     setxy (random-xcor * 0.95) (random-ycor * 0.95)
+    set age random-float 80
+    set vaccine-immunity-timer 0
     set isolating? false
     set infected? false
     set has-shingles? false
@@ -49,6 +53,7 @@ to setup-nodes
     set vaccinated? true
     set resistant? true
     set color gray
+    set vaccine-immunity-timer 7300
   ]
 end
 
@@ -60,9 +65,9 @@ to setup-spatially-clustered-network
     [
       let choice (min-one-of (other turtles with [not link-neighbor? myself])
                    [distance myself])
-      if choice != nobody [
+      if choice != nobody [ if abs (age - [age] of choice) < 15 or random 10 = 0 [
         create-link-with choice
-      ]
+      ]]
     ]
   ]
   ; make the network look a little prettier
@@ -100,9 +105,6 @@ to change-spatially-clustered-network
 end
 
 to go
-
-  if all? turtles [not infected?]
-    [ stop ]
   if old-average-node-degree != average-node-degree [change-spatially-clustered-network]
   ask turtles with [infected? and infection-duration >= 0] [
   set symptom-delay symptom-delay + 1
@@ -119,6 +121,7 @@ to go
   spread-virus
   update-reactivation
   boost-immunity
+  update-age-and-waning
   tick
 end
 
@@ -181,6 +184,22 @@ to boost-immunity
   ]
 end
 
+to update-age-and-waning
+  ;; one tick = one day  → 1/365 year per tick
+  ask turtles [
+    set age age + 1 / 365
+  ]
+
+  ;; vaccination‑derived immunity decays
+  ask turtles with [vaccinated? and resistant?] [
+    set vaccine-immunity-timer vaccine-immunity-timer - 1
+    if vaccine-immunity-timer <= 0 [
+      set resistant? false         ;; chicken‑pox susceptible again
+      set color blue
+    ]
+  ]
+end
+
 to update-recovery
   ask turtles with [infected?]
   [
@@ -193,16 +212,18 @@ to update-recovery
 end
 
 to update-reactivation
-  ask turtles with [recovered? and not has-shingles?]
-  [
-    if immune-boost <= 0 and random-float 100 < shingles-risk [
-      set has-shingles? true
-      set shingles-timer 0
-      set color orange
+  ask turtles with [recovered? and not has-shingles?] [
+    if immune-boost <= 0 [
+      ;; base probability × (1 + age / 50)   (≈ ×3 at 100 y)
+      let age-factor (1 + age / 50)
+      if random-float 100 < shingles-risk * age-factor [
+        set has-shingles? true
+        set shingles-timer 0
+        set color orange
+      ]
     ]
     set immune-boost immune-boost - 1
   ]
-
   ask turtles with [has-shingles?]
   [
     set shingles-timer shingles-timer + 1
@@ -237,7 +258,6 @@ to do-virus-checks
     ]
   ]
 end
-
 
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -319,7 +339,7 @@ NIL
 PLOT
 8
 430
-301
+649
 661
 Status of Epidemic
 time (days)
@@ -332,8 +352,9 @@ true
 true
 "" ""
 PENS
-"susceptible" 1.0 0 -13345367 true "" "plot (count turtles with [not infected? and not resistant?]) / (count turtles) * 100"
+"susceptible" 1.0 0 -13345367 true "" "plot (count turtles with [not infected? and not has-shingles? and not recovered?]) / (count turtles) * 100"
 "infected" 1.0 0 -2674135 true "" "plot (count turtles with [infected?]) / (count turtles) * 100"
+"shingles" 1.0 0 -817084 true "" "plot 100 * count turtles with [has-shingles?] / count turtles"
 
 SLIDER
 25
@@ -374,7 +395,7 @@ initial-outbreak-size
 initial-outbreak-size
 1
 number-of-nodes
-40.0
+10.0
 1
 1
 NIL
@@ -415,7 +436,7 @@ vaccinated-fraction
 vaccinated-fraction
 0
 1
-0.7
+0.09
 0.01
 1
 NIL
